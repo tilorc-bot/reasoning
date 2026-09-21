@@ -6,9 +6,12 @@ Example::
 
 ``validation/test_query.py`` and ``validation/test_matrices.py`` re-export
 SymPy's pinned upstream suites with ``ask`` and ``_ask_recursive`` rebound to
-this checkout's ``satask``.  The SymPy backend runs temporary re-exports of
-the same upstream suites with those names rebound to
-``sympy.assumptions.satask``.  Each backend runs in its own pytest subprocess;
+this checkout's ``satask``; ``validation/test_refine.py`` re-exports SymPy's
+refine suite with ``refine`` and ``refine_sin_cos`` rebound to
+``reasoning.refine`` and is run with ``--suite validation/test_refine.py``.
+The SymPy backend runs temporary re-exports of the same upstream suites with
+those names rebound to SymPy's own implementations.  Each backend runs in its
+own pytest subprocess;
 per-test outcomes, timings, and failure texts are compared.  The exit status is
 1 when the backends disagree on an outcome, or when both fail (or error) the
 same test with different failure content; it is 0 otherwise.
@@ -39,7 +42,8 @@ _suite._ask_recursive = _satask
 
 from {SYMPY_PACKAGE}.{{module}} import *  # noqa: E402,F401,F403
 """
-REASONING_BINDING = "from reasoning.satask import satask"
+REASONING_BINDINGS = ("from reasoning.satask import satask",
+                      "from reasoning.refine import refine")
 
 OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR|XFAIL|XPASS|SKIPPED)\s+(\S+)", re.MULTILINE)
 OUTCOMES = ("PASSED", "FAILED", "ERROR", "XFAIL", "XPASS", "SKIPPED")
@@ -165,8 +169,9 @@ def main() -> None:
 
     suites = [args.suite] if args.suite else list(DEFAULT_SUITES)
     for suite in suites:
-        if REASONING_BINDING not in suite.read_text():
-            raise SystemExit(f"{suite} does not bind satask from reasoning")
+        text = suite.read_text()
+        if not any(binding in text for binding in REASONING_BINDINGS):
+            raise SystemExit(f"{suite} does not bind reasoning code")
 
     backends = {name: run_backend(name, suites, args.pytest_args)
                 for name in BACKENDS}

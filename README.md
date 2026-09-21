@@ -44,6 +44,8 @@ assert ReasoningEngine(db).ask(query) is True
   instantiates cached number/matrix fact templates.
 - `sathandlers.py` inspects SymPy expressions but emits lightweight formulas
   over local predicates. `registry.py` is independent of SymPy.
+- `refine.py` adapts SymPy's assumption-driven refinement. Its handlers ask
+  the independent engine; `refine` keeps SymPy's `_eval_refine` hooks.
 
 The core does not import SymPy. SymPy expressions can be opaque atoms without
 requiring the core to understand them, and `satask` normalizes its inputs so
@@ -74,6 +76,12 @@ Run `python -m pytest reasoning/tests` and
 To compare answers against saved original modules, run
 `python -m benchmarks.compare_satask --baseline-satask /path/to/satask.py
 --baseline-handlers /path/to/sathandlers.py --include-early-return`.
+
+SymPy's refine suite is re-exported with `refine` bound to `reasoning.refine`:
+run `python -m pytest validation/test_refine.py`, or compare it against SymPy's
+refine with `python validation/compare_backends.py --suite
+validation/test_refine.py`. Known gaps are `Q.real(1/x)` under `Q.positive(x)`,
+old-assumption symbols, and parity facts for sums.
 
 The benchmark reports warm median conversion, discovery/encoding, query
 encoding, and solving times, plus clause and variable counts. Discovery and fact
