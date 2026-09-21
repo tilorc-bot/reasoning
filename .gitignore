@@ -8,3 +8,7 @@ __pycache__/
 env/
 results/
 html/
+
+# Rust core: cargo output and the vendored CaDiCaL build tree
+target/
+vendor/cadical/

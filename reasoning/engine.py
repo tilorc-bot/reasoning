@@ -1,15 +1,28 @@
 """Integer-CNF reasoning API independent of SymPy."""
 from __future__ import annotations
 
-from typing import AbstractSet, Iterable, cast
+import os
+from typing import AbstractSet, Any, Iterable, cast
 
 from .solver import IpasirStatus, SATSolver
+
+
+def default_solver_class() -> Any:
+    """Return the solver implementation selected by ``$REASONING_SOLVER``.
+
+    The default is the bundled pure-Python DPLL solver; ``rust`` selects the
+    CaDiCaL-backed Rust core, which must have been built first.
+    """
+    if os.environ.get("REASONING_SOLVER", "").lower() == "rust":
+        from .rust_solver import RustSolver
+        return RustSolver
+    return SATSolver
 
 
 class ReasoningEngine:
     """Answer whether an integer literal follows from a clause database."""
 
-    def __init__(self, factbase: object) -> None:
+    def __init__(self, factbase: object, solver_class: Any = None) -> None:
         self._factbase = factbase
         clauses = cast("Iterable[Iterable[int]]",
                        getattr(factbase, "data", factbase))
@@ -20,7 +33,8 @@ class ReasoningEngine:
             raise ValueError("Inconsistent assumptions")
         if any(literal == 0 for clause in self._clauses for literal in clause):
             raise ValueError("0 is not a CNF literal")
-        self._solver = SATSolver(self._clauses, variables, set())
+        self._solver = (solver_class or default_solver_class())(
+            self._clauses, variables, set())
         if self._solver.propagate() is IpasirStatus.UNSATISFIABLE:
             raise ValueError("Inconsistent assumptions")
         self._model_values: dict[int, int] | None = None

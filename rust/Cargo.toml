@@ -1,0 +1,17 @@
+[package]
+name = "reasoning_core"
+version = "0.1.0"
+edition = "2021"
+description = "Rust reasoning core: clause storage and CaDiCaL session over a C ABI"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[build-dependencies]
+cc = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
