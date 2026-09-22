@@ -56,6 +56,14 @@ def test_oracle_catches_invalid_refinement() -> None:
         assert_refinement_valid(x + 1, True, x - 1)
 
 
+def test_oracle_parity_excludes_non_integers() -> None:
+    from sympy.core.numbers import Rational
+
+    with pytest.raises(AssertionError, match="no satisfying sample"):
+        assert_refinement_valid(x, Q.odd(x), x, values={x: [Rational(1, 2)]})
+    assert_refinement_valid(x, Q.odd(x), x, values={x: [3]})
+
+
 def test_oracle_needs_satisfying_sample() -> None:
     from sympy.core.numbers import oo
 

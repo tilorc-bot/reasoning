@@ -129,7 +129,11 @@ def _even(value: Any) -> bool | None:
 
 def _odd(value: Any) -> bool | None:
     even = _even(value)
-    return None if even is None else not even
+    if even is None:
+        return None
+    if value.is_integer is False:
+        return False
+    return not even
 
 
 _PREDICATE_CHECKS: dict[str, Callable[[Any], bool | None]] = {
