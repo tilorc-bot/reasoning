@@ -1,3 +1,5 @@
+# This readme is written by AI
+
 # reasoning
 
 A propositional reasoning core with an optional SymPy integration.
@@ -73,9 +75,15 @@ lightweight formulas. Legacy substitution helpers remain available for callers.
 Run `python -m pytest reasoning/tests` and
 `python -m benchmarks.satask --repeat 25`.
 
-To compare answers against saved original modules, run
-`python -m benchmarks.compare_satask --baseline-satask /path/to/satask.py
---baseline-handlers /path/to/sathandlers.py --include-early-return`.
+To compare answers against the pinned SymPy `satask`, run
+`python -m benchmarks.compare_satask --include-early-return`. Saved original
+modules remain supported with `--baseline-satask` and `--baseline-handlers`.
+
+CI (`.github/workflows/ci.yml`) runs the unit tests, mypy, and the vendored
+known-facts check on Python 3.10 and 3.14, plus the commands above, for every
+pull request. Timing results and the validation progress comparison appear in
+the job summary; CI timings are illustrative and the validation comparison is
+informational.
 
 SymPy's refine suite is re-exported with `refine` bound to `reasoning.refine`:
 run `python -m pytest validation/test_refine.py`, or compare it against SymPy's

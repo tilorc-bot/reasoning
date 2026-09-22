@@ -6,6 +6,7 @@ from typing import Iterable
 from .clauses import ClauseDB, assert_formula, compile_formula, iter_atoms
 from .discovery import discover_facts, relevant_subjects
 from .engine import ReasoningEngine
+from .lra_adapter import build_lra_theory
 from .sympy_adapter import (
     NormalizedFormula, SympyAdapter, normalize, to_formula,
 )
@@ -24,7 +25,8 @@ def _iteration_limit(iterations: object) -> int | None:
 
 def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
            use_known_facts: bool = True, iterations: object = None,
-           early_return: bool = False) -> bool | None:
+           early_return: bool = False,
+           use_lra_theory: bool = False) -> bool | None:
     """Return True, False, or None according to the supplied assumptions.
 
     Expression facts are discovered breadth-first, processing each expression
@@ -34,6 +36,12 @@ def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
 
     By default inconsistent assumptions raise ValueError. ``early_return``
     permits an answer from unit propagation while trusting consistency.
+
+    ``use_lra_theory`` additionally interprets the linear relations among the
+    discovered ``Q.eq``/``Q.gt``/``Q.lt``/``Q.ge``/``Q.le`` atoms and lets the
+    linear arithmetic solver prune inconsistent assignments. It is opt-in
+    because the theory changes the search and only helps formulas whose
+    Boolean structure leaves relations undecided.
 
     Inputs are normalized by :func:`~reasoning.sympy_adapter.normalize`:
     Python Booleans and legacy CNF objects are accepted, any other non-SymPy
@@ -46,7 +54,17 @@ def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
     db = get_all_relevant_facts(prop_formula, assump_formula, use_known_facts, iterations)
     assert_formula(assump_formula, db)
     query = compile_formula(prop_formula, db)
-    return ReasoningEngine(db).ask(query, early_return=early_return)
+
+    theories = []
+    if use_lra_theory:
+        lra, conflicts = build_lra_theory(db)
+        for conflict in conflicts:
+            db.add_clause(conflict)
+        if lra is not None:
+            theories.append(lra)
+
+    engine = ReasoningEngine(db, theory_solvers=theories)
+    return engine.ask(query, early_return=early_return)
 
 
 def extract_predargs(proposition: object,

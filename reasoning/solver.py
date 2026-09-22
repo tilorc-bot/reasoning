@@ -20,6 +20,8 @@ from enum import Enum
 from heapq import heappush, heappop
 from typing import AbstractSet, Callable, Iterable, Iterator, cast
 
+from .theory import TheorySolver
+
 class IpasirStatus(Enum):
     # Status codes used by the IPASIR style interface of SATSolver. The values are
     # the ones mandated by the IPASIR standard for ``ipasir_solve``.
@@ -64,7 +66,8 @@ class SATSolver:
                 variables: AbstractSet[int] | None = None,
                 var_settings: Iterable[int] = (),
                 heuristic: str = 'vsids', clause_learning: str = 'none',
-                INTERVAL: int = 500) -> None:
+                INTERVAL: int = 500, *,
+                theory_solvers: Iterable[TheorySolver] = ()) -> None:
 
         clauses = list(clauses)
         if variables is None:
@@ -76,6 +79,14 @@ class SATSolver:
         if variables:
             variables = set(range(1, max(variables) + 1))
         self.var_settings = set(var_settings)
+        self.theory_solvers: list[TheorySolver] = list(theory_solvers)
+        if len({id(theory) for theory in self.theory_solvers}) != len(self.theory_solvers):
+            raise ValueError("Duplicate theory solver")
+        if self.theory_solvers and self.var_settings:
+            # Seeds bypass _assign_literal, so the theories would never see
+            # them.  Refuse instead of searching with an unsound theory state.
+            raise NotImplementedError(
+                "theory solvers cannot be combined with base var_settings")
         self.heuristic = heuristic
         self.is_unsatisfied = False
         self._unit_prop_queue = []
@@ -194,9 +205,14 @@ class SATSolver:
                 continue
 
             if -assumed_lit not in self.var_settings:
-                self.levels.append(Level(assumed_lit))
-                self._assign_literal(assumed_lit)
-                self._simplify()
+                self._create_level(assumed_lit)
+                conflict = self._assign_literal(assumed_lit)
+                if conflict is not None:
+                    self.is_unsatisfied = True
+                    self._simple_add_learned_clause(conflict)
+                    self._unit_prop_queue = []
+                else:
+                    self._simplify()
                 if not self.is_unsatisfied:
                     continue
                 self.is_unsatisfied = False
@@ -227,8 +243,29 @@ class SATSolver:
 
                 # Stopping condition for a satisfying theory
                 if 0 == lit:
-                    yield {abs(setting): setting > 0
-                           for setting in self.var_settings}
+                    conflict = self._theory_conflict()
+                    if conflict is None:
+                        yield {abs(setting): setting > 0
+                               for setting in self.var_settings}
+                    else:
+                        if not conflict:
+                            # An empty conflict clause rules out every model.
+                            return
+                        self._simple_add_learned_clause(conflict)
+
+                        # Backtrack to the first level holding a literal the
+                        # theory blames, then let the flip logic below find
+                        # the next candidate model.
+                        responsibility = {-conflict_lit for conflict_lit in conflict}
+                        while self._current_level.var_settings.isdisjoint(
+                                responsibility):
+                            if len(self.levels) <= assumption_level:
+                                return
+                            self._undo()
+                        if len(self.levels) <= assumption_level:
+                            # Every blamed literal is fixed by an assumption,
+                            # so no model is left to find.
+                            return
 
                     # To find the next model after yield, or after adding a conflict clause,
                     # simulate a conflict and backtrack to the most recent unflipped decision.
@@ -324,8 +361,10 @@ class SATSolver:
         self._simplify()
         if self.is_unsatisfied:
             self._status = IpasirStatus.UNSATISFIABLE
-        elif all(self.variable_set[1:]):
+        elif not self.theory_solvers and all(self.variable_set[1:]):
             # Nothing is left to decide on, so the assignments are a model.
+            # With a theory attached the assignment is not a model until the
+            # theory has checked it, which only ``solve`` does.
             self._status = IpasirStatus.SATISFIABLE
 
         return self._status
@@ -608,6 +647,18 @@ class SATSolver:
         """
         return cls in self.sentinels[lit]
 
+    def _theory_conflict(self) -> list[int] | None:
+        """Return a conflict clause if any theory rejects the full assignment.
+
+        Theories are consulted only once every variable has a value, which is
+        also the only point where the SAT solver yields a model.
+        """
+        for theory in self.theory_solvers:
+            result = theory.check()
+            if result is not None and not result[0]:
+                return cast("list[int]", result[1])
+        return None
+
     def _assign_literal(self, lit: int) -> list[int] | None:
         """Make a literal assignment.
 
@@ -644,6 +695,13 @@ class SATSolver:
         self.variable_set[abs(lit)] = True
         self.heur_lit_assigned(lit)
 
+        conflict = None
+        for theory in self.theory_solvers:
+            result = theory.assert_lit(lit)
+            if result is not None and not result[0]:
+                conflict = result[1]
+                break
+
         sentinel_list = list(self.sentinels[-lit])
 
         for cls in sentinel_list:
@@ -663,12 +721,17 @@ class SATSolver:
                 if other_sentinel:
                     self._unit_prop_queue.append(other_sentinel)
 
-        return None
+        return conflict
 
     def _create_level(self, lit: int, flipped: bool = False) -> None:
         """
         Start a new decision level for ``lit``.
+
+        Theories are told about the new level so that every bound asserted
+        while it is current can be undone together when ``_undo`` pops it.
         """
+        for theory in self.theory_solvers:
+            theory.push_level()
         self.levels.append(Level(lit, flipped=flipped))
 
     def _undo(self) -> None:
@@ -700,6 +763,9 @@ class SATSolver:
             self.var_settings.remove(lit)
             self.heur_lit_unset(lit)
             self.variable_set[abs(lit)] = False
+
+        for theory in self.theory_solvers:
+            theory.pop_level()
 
         # Pop the level off the stack
         self.levels.pop()

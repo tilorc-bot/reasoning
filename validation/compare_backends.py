@@ -11,10 +11,13 @@ refine suite with ``refine`` and ``refine_sin_cos`` rebound to
 ``reasoning.refine`` and is run with ``--suite validation/test_refine.py``.
 The SymPy backend runs temporary re-exports of the same upstream suites with
 those names rebound to SymPy's own implementations.  Each backend runs in its
-own pytest subprocess;
-per-test outcomes, timings, and failure texts are compared.  The exit status is
-1 when the backends disagree on an outcome, or when both fail (or error) the
-same test with different failure content; it is 0 otherwise.
+own pytest subprocess; per-test outcomes, timings, and failure texts are
+compared.  An outcome where reasoning passes and SymPy does not is an
+improvement, and tests both backends fail with different failure content are
+expected to diverge as reasoning gets further: both are reported for
+inspection but do not affect the exit status.  The exit status is 1 only when
+the backends otherwise disagree on an outcome (for example, SymPy passes a
+test reasoning fails); it is 0 otherwise.
 """
 from __future__ import annotations
 
@@ -47,7 +50,12 @@ REASONING_BINDINGS = ("from reasoning.satask import satask",
 
 OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR|XFAIL|XPASS|SKIPPED)\s+(\S+)", re.MULTILINE)
 OUTCOMES = ("PASSED", "FAILED", "ERROR", "XFAIL", "XPASS", "SKIPPED")
+PASSING_OUTCOMES = ("PASSED", "XPASS")
 BACKEND_SUFFIX = re.compile(r"_(?:reasoning|sympy)\b")
+
+
+def passes(outcome: str | None) -> bool:
+    return outcome in PASSING_OUTCOMES
 
 
 def write_sympy_suite(directory: Path, suite: Path) -> Path:
@@ -188,14 +196,23 @@ def main() -> None:
         print_timings(backends, args.timings)
 
     reasoning, sympy_ = backends["reasoning"][0], backends["sympy"][0]
-    mismatches = [(test, reasoning.get(test), sympy_.get(test))
-                  for test in sorted(reasoning.keys() | sympy_.keys())
-                  if reasoning.get(test) != sympy_.get(test)]
+    differing_outcomes = [(test, reasoning.get(test), sympy_.get(test))
+                          for test in sorted(reasoning.keys() | sympy_.keys())
+                          if reasoning.get(test) != sympy_.get(test)]
+    improvements = [mismatch for mismatch in differing_outcomes
+                    if passes(mismatch[1]) and not passes(mismatch[2])]
+    mismatches = [mismatch for mismatch in differing_outcomes
+                  if not passes(mismatch[1]) or passes(mismatch[2])]
+    if improvements:
+        print(f"\n{len(improvements)} improvements "
+              "(reasoning passes, sympy does not):")
+        for test, reasoning_outcome, sympy_outcome in improvements:
+            print(f"  {test}: reasoning={reasoning_outcome} sympy={sympy_outcome}")
     if mismatches:
         print(f"\n{len(mismatches)} outcome mismatches:")
         for test, reasoning_outcome, sympy_outcome in mismatches:
             print(f"  {test}: reasoning={reasoning_outcome} sympy={sympy_outcome}")
-    else:
+    elif not improvements:
         print("\nNo outcome mismatches.")
 
     differing = []
@@ -205,11 +222,12 @@ def main() -> None:
                 and backends["reasoning"][2].get(test) != backends["sympy"][2].get(test)):
             differing.append(test)
     if differing:
-        print(f"\n{len(differing)} same outcome, different failure:")
+        print(f"\n{len(differing)} same outcome, different failure "
+              "(informational):")
         for test in differing:
             print(f"  {test}")
 
-    raise SystemExit(1 if mismatches or differing else 0)
+    raise SystemExit(1 if mismatches else 0)
 
 
 if __name__ == "__main__":

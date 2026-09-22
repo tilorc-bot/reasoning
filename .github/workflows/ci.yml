@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  tests:
+    name: tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install the package with pinned SymPy and dev tools
+        run: python -m pip install -e '.[sympy,dev]'
+      - name: Run unit tests
+        run: python -m pytest reasoning/tests -q
+      - name: Type check
+        run: python -m mypy
+      - name: Check the vendored known facts are up to date
+        run: python tools/regen_known_facts.py --check
+      - name: Scan for old-assumptions usage (advisory)
+        run: python tools/check_old_assumptions.py
+
+  benchmarks:
+    name: benchmarks and validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install the package with pinned SymPy and dev tools
+        run: python -m pip install -e '.[sympy,dev]'
+      - name: Compare satask results against pinned SymPy
+        run: python -m benchmarks.compare_satask --include-early-return
+      - name: Run the satask timing benchmark
+        run: python -m benchmarks.satask --repeat 25 | tee benchmark.json
+      - name: Add the timing benchmark to the job summary
+        if: always() && hashFiles('benchmark.json') != ''
+        run: |
+          {
+            echo "### satask timing benchmark"
+            echo
+            echo 'Medians in milliseconds from a shared CI runner: illustrative, not a'
+            echo 'performance assertion. See benchmarks/README.md.'
+            echo
+            echo "| case | total | conversion | discovery+encoding | query encoding | solve | clauses | variables | result |"
+            echo "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"
+            jq -r 'to_entries[] | "| \(.key) | \(.value.total_ms * 100 | round / 100) | \(.value.conversion_ms * 100 | round / 100) | \(.value.discovery_encoding_ms * 100 | round / 100) | \(.value.query_encoding_ms * 100 | round / 100) | \(.value.solve_ms * 100 | round / 100) | \(.value.clauses) | \(.value.variables) | \(.value.result) |"' benchmark.json || true
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Run the validation progress comparison
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python validation/compare_backends.py --timings 0 | tee validation.txt
+      - name: Add the validation progress to the job summary
+        if: always() && hashFiles('validation.txt') != ''
+        run: |
+          {
+            echo "### Validation progress"
+            echo
+            echo "Pinned SymPy suites run against this checkout's satask. Outcome mismatches"
+            echo "mean reasoning fails a test that pinned SymPy passes; they are expected"
+            echo "until parity and do not fail this run."
+            echo
+            echo '```'
+            grep -E '^(reasoning|sympy):|^(No outcome mismatches|[0-9]+ improvements|[0-9]+ outcome mismatches)' validation.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload benchmark and validation output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-output
+          path: |
+            benchmark.json
+            validation.txt
+          if-no-files-found: ignore

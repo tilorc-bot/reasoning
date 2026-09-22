@@ -1,6 +1,7 @@
-"""Compare this checkout's ``satask`` against saved baseline modules.
+"""Compare this checkout's ``satask`` against a baseline ``satask``.
 
-Example::
+By default the baseline is the pinned SymPy ``satask`` from the installed
+``sympy`` package.  Saved baseline modules can be supplied instead::
 
     .venv/bin/python benchmarks/compare_satask.py \
         --baseline-satask /path/to/satask.py \
@@ -35,6 +36,12 @@ def _load_module(name: str, path: Path) -> Any:
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_installed_baseline() -> Callable[..., Any]:
+    """Return the pinned SymPy ``satask`` installed in this environment."""
+    from sympy.assumptions.satask import satask as installed_satask
+    return cast("Callable[..., Any]", installed_satask)
 
 
 def load_baseline(satask_path: Path, handlers_path: Path) -> Callable[..., Any]:
@@ -122,14 +129,21 @@ def compare(baseline: Callable[..., Any], seed: int, random_cases: int,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baseline-satask", required=True, type=Path)
-    parser.add_argument("--baseline-handlers", required=True, type=Path)
+    parser.add_argument("--baseline-satask", type=Path,
+                        help="a saved baseline satask.py file")
+    parser.add_argument("--baseline-handlers", type=Path,
+                        help="the saved sathandlers.py matching --baseline-satask")
     parser.add_argument("--seed", type=int, default=62819)
     parser.add_argument("--random-cases", type=int, default=120)
     parser.add_argument("--include-early-return", action="store_true")
     args = parser.parse_args()
 
-    baseline = load_baseline(args.baseline_satask, args.baseline_handlers)
+    if (args.baseline_satask is None) != (args.baseline_handlers is None):
+        parser.error("--baseline-satask and --baseline-handlers are required together")
+    if args.baseline_satask is None:
+        baseline = load_installed_baseline()
+    else:
+        baseline = load_baseline(args.baseline_satask, args.baseline_handlers)
     modes = [False] + ([True] if args.include_early_return else [])
     failed = False
     for early_return in modes:

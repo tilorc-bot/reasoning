@@ -4,12 +4,19 @@ from __future__ import annotations
 from typing import AbstractSet, Iterable, cast
 
 from .solver import IpasirStatus, SATSolver
+from .theory import TheorySolver
 
 
 class ReasoningEngine:
-    """Answer whether an integer literal follows from a clause database."""
+    """Answer whether an integer literal follows from a clause database.
 
-    def __init__(self, factbase: object) -> None:
+    Theory solvers can be passed in to prune assignments that the clauses
+    alone allow; they are used for both the consistency check and every
+    query.
+    """
+
+    def __init__(self, factbase: object,
+                 theory_solvers: Iterable[TheorySolver] = ()) -> None:
         self._factbase = factbase
         clauses = cast("Iterable[Iterable[int]]",
                        getattr(factbase, "data", factbase))
@@ -20,7 +27,8 @@ class ReasoningEngine:
             raise ValueError("Inconsistent assumptions")
         if any(literal == 0 for clause in self._clauses for literal in clause):
             raise ValueError("0 is not a CNF literal")
-        self._solver = SATSolver(self._clauses, variables, set())
+        self._solver = SATSolver(self._clauses, variables, set(),
+                                 theory_solvers=theory_solvers)
         if self._solver.propagate() is IpasirStatus.UNSATISFIABLE:
             raise ValueError("Inconsistent assumptions")
         self._model_values: dict[int, int] | None = None

@@ -5,9 +5,6 @@ from typing import Any, Callable, Iterable, TypeAlias, cast
 from sympy import S, Symbol
 from sympy.assumptions.assume import AppliedPredicate
 from sympy.core.function import Function
-from sympy.assumptions.ask_generated import (
-    get_all_known_matrix_facts, get_all_known_number_facts,
-)
 from sympy.core.kind import NumberKind, UndefinedKind
 from sympy.core.relational import Eq, Ne, Gt, Lt, Ge, Le
 from sympy.logic.boolalg import (
@@ -19,6 +16,7 @@ from .clauses import (
     ClauseDB, Formula, AND, OR, NOT, IMPLIES, EQUIVALENT, XOR, ITE as IF,
     assert_formula, iter_atoms,
 )
+from .knownfacts import template as known_facts_template
 from .predicates import AppliedPredicate as LocalAppliedPredicate
 from .predicates import Predicate as LocalPredicate
 from .predicates import Q as LocalQ
@@ -111,17 +109,9 @@ def to_formula(expr: object) -> object:
 def _known_template(numbers: bool, matrices: bool) -> tuple[
     list[LocalPredicate], tuple[tuple[int, ...], ...],
 ]:
-    clauses: set[Any] = set()
-    if numbers:
-        clauses.update(get_all_known_number_facts())
-    if matrices:
-        clauses.update(get_all_known_matrix_facts())
-    sympy_predicates = sorted({lit.lit for clause in clauses for lit in clause}, key=str)
-    predicates = [LocalQ.of(predicate.name) for predicate in sympy_predicates]
-    encoding = {predicate: i + 1 for i, predicate in enumerate(sympy_predicates)}
-    data = tuple(tuple(-encoding[lit.lit] if lit.is_Not else encoding[lit.lit]
-                       for lit in clause) for clause in clauses)
-    return predicates, data
+    names, clauses = known_facts_template(numbers, matrices)
+    predicates = [LocalQ.of(name) for name in names]
+    return predicates, clauses
 
 
 def _extra_predicate_facts(subject: SymPyExpr) -> Iterable[object]:
