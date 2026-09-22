@@ -362,6 +362,33 @@ def assert_formula(formula: object, db: ClauseDB) -> None:
         if antecedent is not None and consequent is not None:
             db.add_clause((*(_negate(literal) for literal in antecedent), *consequent))
             return
+        # A -> (Or_j(And_j) -> C) flattens to (A & Or_j(And_j)) -> C, one
+        # clause per disjunct.  Distribution is confined to this negative
+        # polarity: the same shapes in consequent position would expand
+        # exponentially and must keep falling through to Tseitin compilation.
+        # The shape checks below never allocate variables, so every shape
+        # that is not fast-pathed reaches Tseitin with the database exactly
+        # as before.
+        if antecedent is not None and isinstance(formula.args[1], Formula) \
+                and formula.args[1].op == "implies":
+            nested = formula.args[1]
+            disjuncts = _cnf_disjunct_formulas(nested.args[0])
+            if disjuncts is not None and _flat_disjunction(nested.args[1]):
+                nested_consequent = _disjunction_literals(nested.args[1], db)
+                for disjunct in disjuncts:
+                    db.add_clause((*(_negate(literal) for literal in antecedent),
+                                   *(_negate(_as_literal(term, db))
+                                     for term in disjunct),
+                                   *nested_consequent))
+                return
+        # (Or_j(And_j)) -> C is one clause per disjunct, no auxiliaries.
+        disjuncts = _cnf_disjunct_formulas(formula.args[0])
+        if disjuncts is not None and consequent is not None:
+            for disjunct in disjuncts:
+                db.add_clause((*(_negate(_as_literal(term, db))
+                                 for term in disjunct),
+                               *consequent))
+            return
     if isinstance(formula, Formula) and formula.op == "equivalent":
         literals = [_as_literal(arg, db) for arg in formula.args]
         if all(arg is not None for arg in literals):
@@ -392,6 +419,41 @@ def _disjunction_literals(formula: object, db: ClauseDB) -> list[Literal] | None
     if all(literal is not None for literal in literals):
         return cast("list[Literal]", literals)
     return None
+
+
+def _is_literal_formula(formula: object) -> bool:
+    """Whether ``_as_literal`` would succeed for *formula*, without
+    allocating any variable."""
+    if formula is True or formula is False:
+        return True
+    if isinstance(formula, Formula):
+        return formula.op == "not" and _is_literal_formula(formula.args[0])
+    return True
+
+
+def _flat_disjunction(formula: object) -> bool:
+    """Whether *formula* is a literal or a flat disjunction of them."""
+    terms = formula.args if isinstance(formula, Formula) and formula.op == "or" else (formula,)
+    return all(_is_literal_formula(term) for term in terms)
+
+
+def _cnf_disjunct_formulas(formula: object) -> tuple[tuple[object, ...], ...] | None:
+    """Return the disjuncts of an Or-of-Ands of literal-shaped terms.
+
+    Each disjunct is a conjunction of literal-shaped terms, held as the raw
+    term formulas so callers materialize variable ids only when they commit
+    to emitting the distributed clauses.  ``None`` when *formula* does not
+    have this shape.
+    """
+    if not (isinstance(formula, Formula) and formula.op == "or"):
+        return None
+    disjuncts = []
+    for arg in formula.args:
+        terms = arg.args if isinstance(arg, Formula) and arg.op == "and" else (arg,)
+        if not all(_is_literal_formula(term) for term in terms):
+            return None
+        disjuncts.append(terms)
+    return tuple(disjuncts)
 
 
 __all__ = [
