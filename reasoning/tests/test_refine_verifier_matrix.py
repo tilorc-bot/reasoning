@@ -7,7 +7,9 @@ and mathematical counterexamples.
 
 Known defects are recorded as strict ``xfail`` markers with minimal repros in
 the reason strings; they fail today and turn into errors if the defect is
-fixed, forcing the marker to be revisited.
+fixed, forcing the marker to be revisited.  The MatrixElement off-diagonal
+counterexamples found by this file were fixed; they are now regular
+regression tests.
 """
 from __future__ import annotations
 
@@ -601,35 +603,18 @@ def test_matrixelement_scripted_mixed_answers() -> None:
         assert isinstance(result, Basic)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        'unsound new rule: independent symbols i, j are not provably distinct; '
-        'refine(A[i, j], Q.diagonal(A)) == 0, but at i = j = 0 with A = I3 the '
-        'true element is 1 (same for A[j, i])'
-    ),
-)
-def test_matrixelement_symbolic_indices_counterexample() -> None:
+def test_matrixelement_symbolic_indices_not_zero() -> None:
+    # Independent symbols are not provably distinct: at i = j = 0 with A = I3
+    # the true element is 1, so no off-diagonal zero may be emitted.
     for expr in (A[i, j], A[j, i]):
         refined = refine(expr, Q.diagonal(A))
-        at_diagonal = refined.subs({i: 0, j: 0})
-        truth = expr.subs({i: 0, j: 0}).subs(A, Identity(3)).doit()
-        assert at_diagonal == truth
+        assert refined.subs({i: 0, j: 0}).subs(A, Identity(3)).doit() == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        'unsound new rule: n and 2*n can coincide at n = 0; '
-        'refine(A[n, 2*n], Q.diagonal(A)) == 0, but at n = 0 with A = I3 the '
-        'true element is 1'
-    ),
-)
-def test_matrixelement_vanishing_symbolic_indices_counterexample() -> None:
+def test_matrixelement_vanishing_symbolic_indices_not_zero() -> None:
+    # n and 2*n can coincide at n = 0, so the index pair is not distinct.
     refined = refine(A[n, 2 * n], Q.diagonal(A))
-    at_zero = refined.subs(n, 0)
-    truth = A[n, 2 * n].subs(n, 0).subs(A, Identity(3)).doit()
-    assert at_zero == truth
+    assert refined.subs(n, 0).subs(A, Identity(3)).doit() == 1
 
 
 # ---------------------------------------------------------------------------

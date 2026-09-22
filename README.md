@@ -80,8 +80,12 @@ To compare answers against saved original modules, run
 SymPy's refine suite is re-exported with `refine` bound to `reasoning.refine`:
 run `python -m pytest validation/test_refine.py`, or compare it against SymPy's
 refine with `python validation/compare_backends.py --suite
-validation/test_refine.py`. Known gaps are `Q.real(1/x)` under `Q.positive(x)`,
-old-assumption symbols, and parity facts for sums.
+validation/test_refine.py`. The only remaining failure is the old-assumption
+path in `test_sign` (`Symbol('x', imaginary=True)`); the `Q.real(1/x)` and
+sum-parity gaps have landed with the structural and elementary-function facts.
+Handler modules live in `reasoning/refine/handlers/` and self-register into
+`handlers_dict`; see `agent-reports/2026-09-22-refine-handler-report.md` for
+the per-key status and the deliberately deferred list.
 
 The benchmark reports warm median conversion, discovery/encoding, query
 encoding, and solving times, plus clause and variable counts. Discovery and fact
