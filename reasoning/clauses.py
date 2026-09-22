@@ -8,7 +8,7 @@ objects as atoms.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Hashable, Iterable, Iterator, TypeAlias, cast
+from typing import Hashable, Iterable, Iterator, Sequence, TypeAlias, cast
 
 
 Literal: TypeAlias = int | bool
@@ -94,6 +94,78 @@ class ClauseDB:
     def format_clauses(self) -> str:
         """Return all clauses in a form intended for debugging and tests."""
         return " & ".join(self.format_clause(clause) for clause in self.data) or "True"
+
+
+class SharedClauses:
+    """A pre-translated, immutable block of integer clauses.
+
+    Some clause theories are *fixed*: the same clauses are needed in every
+    query, with only the atom bindings varying.  Such a theory is translated
+    into integer clauses once and replayed into each query's database, so
+    per-query work is one ``ClauseDB.literal`` call per bound atom plus a
+    clause replay instead of a full re-emission.  Sharing stops at
+    construction time: every receiving database gets its own copies of the
+    clauses and stays independently mutable, and no solver ever observes
+    shared state between queries.
+
+    The block stores clauses over *template positions* — positive integers
+    from 1 to :attr:`width`.  :meth:`replay` binds each position to a
+    variable id of the receiving database.  Auxiliary variables of the
+    compiled theory must occupy the topmost positions of the block; callers
+    that compile theories containing none (the known-facts template) use
+    the default ``auxiliary_count=0``.
+    """
+
+    __slots__ = ("clauses", "width", "auxiliary_count")
+
+    def __init__(self, clauses: Iterable[Iterable[int]], width: int,
+                 auxiliary_count: int = 0) -> None:
+        self.clauses: tuple[tuple[int, ...], ...] = tuple(
+            tuple(clause) for clause in clauses)
+        self.width = width
+        self.auxiliary_count = auxiliary_count
+        if any(abs(literal) > width
+               for clause in self.clauses for literal in clause):
+            raise ValueError("clause literal exceeds the block width")
+        if not 0 <= auxiliary_count <= width:
+            raise ValueError("auxiliary count outside the block width")
+
+    def replay(self, db: ClauseDB, binding: Sequence[int]) -> None:
+        """Add the block to *db*, binding position *i* to ``binding[i]``.
+
+        The binding must map template positions to distinct positive
+        variable ids of *db*; known-facts bindings map the template's
+        predicate positions through ``ClauseDB.literal``, which does.  When
+        the binding is consecutive from *db*'s next free variable — every
+        atom freshly minted — the stored clauses are appended verbatim;
+        otherwise they are re-based through the binding.  Re-based clauses
+        skip ``add_clause`` normalization legitimately: template clauses
+        contain no duplicate or tautological literals by construction, and
+        distinct positions cannot collapse onto one id or onto negations of
+        one another (ids are positive and ``literal`` never reuses an id for
+        a different atom), so every re-based clause is already a normalized
+        duplicate-free integer set.
+        """
+        if len(binding) != self.width:
+            raise ValueError("binding does not cover the block width")
+        base = db._next_variable
+        for position, variable in enumerate(binding):
+            if variable != base + position:
+                self._rebase(db, binding)
+                return
+        db.data.extend(map(set, self.clauses))
+        db._next_variable = base + self.width
+
+    def _rebase(self, db: ClauseDB, binding: Sequence[int]) -> None:
+        data = db.data
+        for clause in self.clauses:
+            data.append({
+                binding[literal - 1] if literal > 0 else -binding[-literal - 1]
+                for literal in clause})
+        # Keep the next free id above every bound position so a later
+        # ``literal`` call cannot mint an id a binding already names.
+        if db._next_variable <= max(binding):
+            db._next_variable = max(binding) + 1
 
 
 @dataclass(frozen=True)
@@ -362,6 +434,33 @@ def assert_formula(formula: object, db: ClauseDB) -> None:
         if antecedent is not None and consequent is not None:
             db.add_clause((*(_negate(literal) for literal in antecedent), *consequent))
             return
+        # A -> (Or_j(And_j) -> C) flattens to (A & Or_j(And_j)) -> C, one
+        # clause per disjunct.  Distribution is confined to this negative
+        # polarity: the same shapes in consequent position would expand
+        # exponentially and must keep falling through to Tseitin compilation.
+        # The shape checks below never allocate variables, so every shape
+        # that is not fast-pathed reaches Tseitin with the database exactly
+        # as before.
+        if antecedent is not None and isinstance(formula.args[1], Formula) \
+                and formula.args[1].op == "implies":
+            nested = formula.args[1]
+            disjuncts = _cnf_disjunct_formulas(nested.args[0])
+            if disjuncts is not None and _flat_disjunction(nested.args[1]):
+                nested_consequent = _disjunction_literals(nested.args[1], db)
+                for disjunct in disjuncts:
+                    db.add_clause((*(_negate(literal) for literal in antecedent),
+                                   *(_negate(_as_literal(term, db))
+                                     for term in disjunct),
+                                   *nested_consequent))
+                return
+        # (Or_j(And_j)) -> C is one clause per disjunct, no auxiliaries.
+        disjuncts = _cnf_disjunct_formulas(formula.args[0])
+        if disjuncts is not None and consequent is not None:
+            for disjunct in disjuncts:
+                db.add_clause((*(_negate(_as_literal(term, db))
+                                 for term in disjunct),
+                               *consequent))
+            return
     if isinstance(formula, Formula) and formula.op == "equivalent":
         literals = [_as_literal(arg, db) for arg in formula.args]
         if all(arg is not None for arg in literals):
@@ -394,8 +493,43 @@ def _disjunction_literals(formula: object, db: ClauseDB) -> list[Literal] | None
     return None
 
 
+def _is_literal_formula(formula: object) -> bool:
+    """Whether ``_as_literal`` would succeed for *formula*, without
+    allocating any variable."""
+    if formula is True or formula is False:
+        return True
+    if isinstance(formula, Formula):
+        return formula.op == "not" and _is_literal_formula(formula.args[0])
+    return True
+
+
+def _flat_disjunction(formula: object) -> bool:
+    """Whether *formula* is a literal or a flat disjunction of them."""
+    terms = formula.args if isinstance(formula, Formula) and formula.op == "or" else (formula,)
+    return all(_is_literal_formula(term) for term in terms)
+
+
+def _cnf_disjunct_formulas(formula: object) -> tuple[tuple[object, ...], ...] | None:
+    """Return the disjuncts of an Or-of-Ands of literal-shaped terms.
+
+    Each disjunct is a conjunction of literal-shaped terms, held as the raw
+    term formulas so callers materialize variable ids only when they commit
+    to emitting the distributed clauses.  ``None`` when *formula* does not
+    have this shape.
+    """
+    if not (isinstance(formula, Formula) and formula.op == "or"):
+        return None
+    disjuncts = []
+    for arg in formula.args:
+        terms = arg.args if isinstance(arg, Formula) and arg.op == "and" else (arg,)
+        if not all(_is_literal_formula(term) for term in terms):
+            return None
+        disjuncts.append(terms)
+    return tuple(disjuncts)
+
+
 __all__ = [
     "AND", "OR", "NOT", "IMPLIES", "EQUIVALENT", "XOR", "ITE",
-    "ClauseDB", "Formula", "Literal", "assert_formula", "compile_formula",
-    "iter_atoms",
+    "ClauseDB", "Formula", "Literal", "SharedClauses",
+    "assert_formula", "compile_formula", "iter_atoms",
 ]
