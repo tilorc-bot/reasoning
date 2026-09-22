@@ -6,9 +6,10 @@ which is a closed rectangle in the real line:
 
 * ``asin(sin(x)) -> x`` for real ``x`` in ``[-pi/2, pi/2]``
 * ``acos(cos(x)) -> x`` for real ``x`` in ``[0, pi]``
-* ``atan(tan(x)) -> x`` for real ``x`` in ``[-pi/2, pi/2]``
+* ``atan(tan(x)) -> x`` for real ``x`` in the open interval
+  ``(-pi/2, pi/2)`` (``tan`` has poles at the closed-interval endpoints)
 
-Nothing is refined when any of the three range predicates is not provable.
+Nothing is refined when any of the range predicates is not provable.
 """
 from __future__ import annotations
 
@@ -57,8 +58,8 @@ def refine_atan(expr: Basic, assumptions: Boolean | bool = True) -> Basic | None
     if isinstance(arg, tan):
         inner = arg.args[0]
         if (_upstream.ask(Q.real(inner), assumptions)
-                and _upstream.ask(Q.ge(inner, -S.Pi / 2), assumptions)
-                and _upstream.ask(Q.le(inner, S.Pi / 2), assumptions)):
+                and _upstream.ask(Q.gt(inner, -S.Pi / 2), assumptions)
+                and _upstream.ask(Q.lt(inner, S.Pi / 2), assumptions)):
             return inner
     return None
 

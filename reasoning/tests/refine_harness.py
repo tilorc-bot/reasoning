@@ -136,11 +136,17 @@ def _odd(value: Any) -> bool | None:
     return not even
 
 
+def _nonzero(value: Any) -> bool | None:
+    if value.is_zero is None or value.is_real is None:
+        return None
+    return value.is_real and not value.is_zero
+
+
 _PREDICATE_CHECKS: dict[str, Callable[[Any], bool | None]] = {
     "positive": lambda v: v.is_positive,
     "negative": lambda v: v.is_negative,
     "zero": lambda v: v.is_zero,
-    "nonzero": lambda v: None if v.is_zero is None else not v.is_zero,
+    "nonzero": _nonzero,
     "nonnegative": lambda v: v.is_nonnegative,
     "nonpositive": lambda v: v.is_nonpositive,
     "integer": lambda v: v.is_integer,

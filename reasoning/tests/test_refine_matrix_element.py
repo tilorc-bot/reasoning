@@ -40,8 +40,19 @@ def test_diagonal_element_with_distinct_literals() -> None:
     assert refine(A[2, 0], Q.diagonal(A)) == S.Zero
 
 
-def test_diagonal_element_with_distinct_symbols() -> None:
-    assert refine(A[j, i], Q.diagonal(A)) == S.Zero
+def test_diagonal_element_with_offset_symbols() -> None:
+    assert refine(A[i, i + 1], Q.diagonal(A)) == S.Zero
+    assert refine(A[i + 1, i], Q.diagonal(A)) == S.Zero
+    assert refine(A[i, i - 1], Q.diagonal(A)) == S.Zero
+
+
+def test_diagonal_element_with_independent_symbols() -> None:
+    # Independent symbols may be equal, so no zero is provable; only the
+    # vendored symmetric-index swap applies.
+    assert refine(A[i, j], Q.diagonal(A)) == A[j, i]
+    assert refine(A[j, i], Q.diagonal(A)) == A[j, i]
+    assert refine(A[i, 2 * i], Q.diagonal(A)) == A[i, 2 * i]
+    assert refine(A[i, j], Q.diagonal(A) & Q.ne(i, j)) == S.Zero
 
 
 def test_symmetric_index_swap_kept() -> None:

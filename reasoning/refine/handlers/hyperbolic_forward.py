@@ -81,15 +81,10 @@ def refine_hyperbolic(expr: Basic, assumptions: Boolean | bool = True) -> Basic 
             parity_known.append((coeff, is_even))
 
     if isinstance(expr, (sinh, cosh, sech, csch)):
-        if not parity_known:
+        if not parity_known and not integer_only:
             return None
-        shift_is_even = True
-        for _, coeff_is_even in parity_known:
-            shift_is_even = shift_is_even == coeff_is_even
-        remaining = Add(*other_terms, *[coeff * PI_I for coeff in integer_only])
-        if shift_is_even:
-            return expr.func(remaining)
-        return -expr.func(remaining)
+        shift = Add(*[coeff for coeff, _ in parity_known] + integer_only)
+        return (-1)**shift * expr.func(Add(*other_terms))
 
     if parity_known or integer_only:
         return expr.func(Add(*other_terms))

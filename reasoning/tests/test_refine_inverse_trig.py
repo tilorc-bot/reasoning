@@ -24,6 +24,9 @@ from reasoning.tests.refine_harness import (
 
 ASIN_RECTANGLE = Q.real(x) & Q.ge(x, -S.Pi / 2) & Q.le(x, S.Pi / 2)
 ACOS_RECTANGLE = Q.real(x) & Q.ge(x, 0) & Q.le(x, S.Pi)
+# ``tan`` has poles at the endpoints, so ``atan(tan(x))`` needs the open
+# interval; ``Q.gt``/``Q.lt`` are the strict relations satask understands.
+ATAN_INTERVAL = Q.real(x) & Q.gt(x, -S.Pi / 2) & Q.lt(x, S.Pi / 2)
 
 REAL_VALUES = [
     S.Zero,
@@ -53,10 +56,17 @@ def test_acos_cos_principal_branch() -> None:
 
 
 def test_atan_tan_principal_branch() -> None:
-    assert refine(atan(tan(x)), ASIN_RECTANGLE) == x
+    assert refine(atan(tan(x)), ATAN_INTERVAL) == x
     assert_refinement_valid(
-        atan(tan(x)), ASIN_RECTANGLE, x, values={x: REAL_VALUES}
+        atan(tan(x)), ATAN_INTERVAL, x, values={x: REAL_VALUES}
     )
+
+
+def test_atan_tan_closed_rectangle_is_not_enough() -> None:
+    # At ``x = +-pi/2`` the original is ``atan(zoo)``, so the closed rectangle
+    # alone cannot justify the cancellation.
+    assert refine(atan(tan(x)), ASIN_RECTANGLE) == atan(tan(x))
+    assert atan(tan(x)).subs(x, S.Pi / 2) != S.Pi / 2
 
 
 def test_asin_sin_outside_branch() -> None:
@@ -95,7 +105,7 @@ def test_only_matching_inner_function() -> None:
 
 def test_extra_assumptions_still_apply() -> None:
     assert refine(asin(sin(x)), ASIN_RECTANGLE & Q.nonzero(x)) == x
-    assert refine(atan(tan(x)), ASIN_RECTANGLE & Q.positive(x)) == x
+    assert refine(atan(tan(x)), ATAN_INTERVAL & Q.positive(x)) == x
 
 
 def test_none_answers_leave_expression_unchanged() -> None:

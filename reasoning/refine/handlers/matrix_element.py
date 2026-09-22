@@ -7,11 +7,11 @@ symmetric-index swap is kept by delegating to
 :func:`~reasoning.refine._upstream.refine_matrixelement` when neither new rule
 applies.
 
-Indices count as provably distinct when both are integer literals and differ,
-or when both are non-integer expressions whose difference looks negative
-(``could_extract_minus_sign``, the same heuristic the vendored symmetric swap
-uses).  A mixed literal/symbolic pair is never treated as distinct: e.g.
-``X[0, i]`` is on the diagonal when ``i`` is zero, so no zero can be proved.
+Indices count as provably distinct only when the difference is structurally
+nonzero (unequal integer literals, offset indices such as ``i`` and ``i + 1``)
+or when ``Q.ne(i, j)`` follows from the assumptions.  Independent symbols are
+not distinct: ``X[i, j]`` is on the diagonal when ``i == j``, so no zero can
+be proved without an explicit disequality.
 """
 from __future__ import annotations
 
@@ -27,13 +27,12 @@ if TYPE_CHECKING:
     from sympy.logic.boolalg import Boolean
 
 
-def _provably_distinct(i: Basic, j: Basic) -> bool:
+def _provably_distinct(i: Basic, j: Basic,
+                       assumptions: Boolean | bool) -> bool:
     """Whether the element indices ``i`` and ``j`` can be shown to differ."""
-    if i.is_Integer and j.is_Integer:
-        return bool(i != j)
-    if not i.is_Integer and not j.is_Integer:
-        return bool((i - j).could_extract_minus_sign())
-    return False
+    if (i - j).is_nonzero is True:
+        return True
+    return _upstream.ask(Q.ne(i, j), assumptions) is True
 
 
 def refine_MatrixElement(expr: Basic,
@@ -42,7 +41,7 @@ def refine_MatrixElement(expr: Basic,
     if _upstream.ask(Q.zero(matrix), assumptions):
         return S.Zero
     if (_upstream.ask(Q.diagonal(matrix), assumptions)
-            and _provably_distinct(i, j)):
+            and _provably_distinct(i, j, assumptions)):
         return S.Zero
     return refine_matrixelement(expr, assumptions)
 

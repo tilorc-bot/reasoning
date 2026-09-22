@@ -48,6 +48,8 @@ def refine_conjugate(expr: Basic, assumptions: Boolean | bool) -> Basic | None:
 
 def refine_Mul(expr: Basic, assumptions: Boolean | bool) -> Basic | None:
     """Cancel conjugate pairs in a product: ``z*conjugate(z) -> Abs(z)**2``."""
+    if not expr.is_commutative:
+        return None
     factors = expr.args
     conjugates = [factor for factor in factors
                   if isinstance(factor, conjugate)]

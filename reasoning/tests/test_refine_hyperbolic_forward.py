@@ -119,11 +119,11 @@ def test_no_refinement_for_unknown_integer_shift() -> None:
     assert refine(coth(x + n * I_PI), Q.real(n)) == coth(x + n * I_PI)
 
 
-def test_no_refinement_for_unknown_parity() -> None:
-    assert refine(sinh(x + n * I_PI), Q.integer(n)) == sinh(x + n * I_PI)
-    assert refine(cosh(x + n * I_PI), Q.integer(n)) == cosh(x + n * I_PI)
-    assert refine(sech(x + n * I_PI), Q.integer(n)) == sech(x + n * I_PI)
-    assert refine(csch(x + n * I_PI), Q.integer(n)) == csch(x + n * I_PI)
+def test_integer_shift_with_unknown_parity() -> None:
+    assert refine(sinh(x + n * I_PI), Q.integer(n)) == (-1)**n * sinh(x)
+    assert refine(cosh(x + n * I_PI), Q.integer(n)) == (-1)**n * cosh(x)
+    assert refine(sech(x + n * I_PI), Q.integer(n)) == (-1)**n * sech(x)
+    assert refine(csch(x + n * I_PI), Q.integer(n)) == (-1)**n * csch(x)
     assert refine(tanh(n * I_PI / 2), Q.integer(n)) == tanh(n * I_PI / 2)
 
 
