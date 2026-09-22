@@ -122,11 +122,6 @@ def test_numeric_oracle() -> None:
 
 
 def test_floor_identity_is_not_sound_without_signs() -> None:
-    # Guards the: NONZERO_INTEGERS},
-    )
-
-
-def test_floor_identity_is_not_sound_without_signs() -> None:
     # Guards the deviation from the report: Rem(-2, 3) = -2 but
     # -2 - 3*floor(-2/3) = 1, so integer p and q alone cannot justify floor.
     with pytest.raises(AssertionError, match="invalid"):
