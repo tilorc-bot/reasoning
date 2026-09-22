@@ -388,9 +388,12 @@ def test_get_relevant_clsfacts() -> None:
                          for lit in clause) for clause in facts.data}
     assert decoded == \
         {frozenset({(LocalQ.nonnegative(Abs(x*y)), False)}),
+         frozenset({(LocalQ.complex(Abs(x*y)), False)}),
          frozenset({(LocalQ.even(Abs(x*y)), False), (LocalQ.even(x*y), True)}),
          frozenset({(LocalQ.integer(Abs(x*y)), False), (LocalQ.integer(x*y), True)}),
          frozenset({(LocalQ.odd(Abs(x*y)), False), (LocalQ.odd(x*y), True)}),
+         frozenset({(LocalQ.positive(Abs(x*y)), False), (LocalQ.nonzero(x*y), True)}),
+         frozenset({(LocalQ.nonzero(Abs(x*y)), False), (LocalQ.nonzero(x*y), True)}),
          frozenset({(LocalQ.zero(Abs(x*y)), False), (LocalQ.zero(x*y), True)}),
          frozenset({(LocalQ.zero(Abs(x*y)), True), (LocalQ.zero(x*y), False)})}
 
