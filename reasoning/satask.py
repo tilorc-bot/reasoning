@@ -1,7 +1,8 @@
 """SymPy-facing entry points for the independent SAT reasoning core."""
 from __future__ import annotations
 
-from typing import Iterable
+from functools import lru_cache
+from typing import Any, Iterable, cast
 
 from .clauses import ClauseDB, assert_formula, compile_formula, iter_atoms
 from .discovery import discover_facts, relevant_subjects
@@ -11,6 +12,53 @@ from .sympy_adapter import (
     NormalizedFormula, SympyAdapter, normalize, to_formula,
 )
 from .sympy_types import SymPyExpr
+
+
+def _memo_argument(value: SymPyExpr | bool) -> SymPyExpr:
+    """Return a cache key for a public input without bool/int collisions.
+
+    Python bools are ints (``True == 1`` and ``False == 0`` compare equal and
+    hash equal), so raw values would let a cached ``satask(True, ...)`` answer
+    a later ``satask(1, ...)``, which raises TypeError.  Keying on the SymPy
+    counterparts (as ``normalize`` interprets them) separates the values; the
+    keys stay hashable and every other value is unaffected.  SymPy objects
+    themselves never equal Python numbers they are not equal to (SymPy Booleans
+    are ``Basic``, so ``hash(S.true) != hash(1)``), and SymPy Booleans mapped
+    through :func:`normalize` are exactly these constants, while raw SymPy
+    expressions still key on identity-by-value hashing.
+    """
+    if value is True:
+        from sympy import true
+        return true
+    if value is False:
+        from sympy import false
+        return false
+    return value
+
+
+def _memo_iteration(iterations: object) -> tuple[Any, object] | None:
+    """Return a cache key for the iteration limit without int collisions.
+
+    The result must be unhashable-safe: an unknown type raises TypeError at
+    key construction, and :func:`satask` then recomputes uncached.  Tagging
+    with the runtime type separates values that compare and hash equal on
+    the value alone, such as ``False``, ``0.0``, or ``numpy.int64(0)``
+    against ``0``: the former pairs raise ValueError while ``0`` is valid.
+    """
+    if iterations is None:
+        return None
+    return _IterationKey((type(iterations), iterations))
+
+
+class _IterationKey(tuple):
+    """Marker subclass wrapping an iteration limit inside the memo key."""
+
+
+def _unwrap(iterations: object) -> object | None:
+    # Invert _memo_iteration by marker type, never by value inspection.
+    if type(iterations) is _IterationKey:
+        return iterations[1]
+    return iterations
 
 
 def _iteration_limit(iterations: object) -> int | None:
@@ -48,7 +96,40 @@ def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
     value raises TypeError, and SymPy ``Q`` applications become local
     :mod:`reasoning.predicates` applications whose arguments are the original
     SymPy expressions.
+
+    Results are memoized on the full argument tuple in a bounded LRU cache
+    (``_MEMO_MAXSIZE`` entries), so repeated identical queries cost a dict
+    lookup.  Exceptions are never cached: inconsistent assumptions raise
+    again on every call.  Like the rest
+    of the package, the cache assumes single-threaded use.
     """
+    try:
+        return _satask_memoized(_memo_argument(proposition),
+                               _memo_argument(assumptions), use_known_facts,
+                               _memo_iteration(iterations), early_return,
+                               use_lra_theory)
+    except TypeError:
+        # The arguments are unhashable (lru_cache rejects them) or ``normalize``
+        # rejected a non-expression input.  Recompute uncached so the original
+        # result or error is produced exactly as before.
+        return _satask(proposition, assumptions, use_known_facts, iterations,
+                       early_return, use_lra_theory)
+
+
+# Bound the memoization cache; each entry pins its key expressions.
+_MEMO_MAXSIZE = 4096
+
+@lru_cache(maxsize=_MEMO_MAXSIZE)
+def _satask_memoized(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool,
+                     use_known_facts: bool, iterations: object,
+                     early_return: bool, use_lra_theory: bool) -> bool | None:
+    return _satask(proposition, assumptions, use_known_facts,
+                   _unwrap(iterations), early_return, use_lra_theory)
+
+
+def _satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool,
+            use_known_facts: bool, iterations: object,
+            early_return: bool, use_lra_theory: bool) -> bool | None:
     prop_formula: NormalizedFormula = normalize(proposition)
     assump_formula: NormalizedFormula = normalize(assumptions)
     db = get_all_relevant_facts(prop_formula, assump_formula, use_known_facts, iterations)
