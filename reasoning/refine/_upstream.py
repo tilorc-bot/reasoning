@@ -1,10 +1,14 @@
-"""Assumption-driven refinement of SymPy expressions.
+"""Vendored refine dispatcher and the initial, upstream-derived handlers.
 
 Adapted from ``sympy/assumptions/refine.py`` (see ``LICENSE.sympy``).  The
 handlers ask the independent engine through :func:`ask` instead of
 ``sympy.assumptions.ask.ask``.  ``refine`` itself still defers to an
 expression's own ``_eval_refine`` hook, whose implementations live in SymPy
 and keep using SymPy's ``ask``.
+
+This module must stay behavior-identical to ``reasoning/refine.py`` as it was
+at ``cf821f7``; new handlers live in :mod:`reasoning.refine.handlers` and
+override entries of :data:`handlers_dict` instead of editing this file.
 """
 from __future__ import annotations
 
@@ -14,8 +18,8 @@ from sympy.assumptions import Q
 from sympy.core import S, Add, Expr, Basic, Mul, Pow, Rational
 from sympy.core.logic import fuzzy_not
 
-from .satask import satask
-from .sympy_types import SymPyExpr
+from ..satask import satask
+from ..sympy_types import SymPyExpr
 
 
 if TYPE_CHECKING:
