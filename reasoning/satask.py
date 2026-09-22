@@ -153,6 +153,14 @@ def _satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool,
     answer = _fast_path_answer(prop_formula, assump_formula, use_known_facts)
     if answer is not _NO_FAST_ANSWER:
         return cast("bool | None", answer)
+    return _satask_pipeline(prop_formula, assump_formula, use_known_facts,
+                            iterations, early_return, use_lra_theory)
+
+
+def _satask_pipeline(prop_formula: NormalizedFormula,
+                     assump_formula: NormalizedFormula,
+                     use_known_facts: bool, iterations: object,
+                     early_return: bool, use_lra_theory: bool) -> bool | None:
     db = get_all_relevant_facts(prop_formula, assump_formula, use_known_facts, iterations)
     assert_formula(assump_formula, db)
     query = compile_formula(prop_formula, db)

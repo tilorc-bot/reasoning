@@ -3,9 +3,10 @@
 The optimizations inside ``satask`` must be semantically transparent: the
 memoized public entry point and the fast path must return exactly what the
 full pipeline returns for every query.  These tests treat the full pipeline
-(:func:`reasoning.satask._satask`, which builds the clause database, runs
-discovery, and invokes the solver) as the oracle and compare against it bit
-for bit, including raised exceptions.
+(:func:`reasoning.satask._satask_pipeline`, which builds the clause database,
+runs discovery, and invokes the solver) as the oracle and compare against it
+bit for bit, including raised exceptions.  The oracle deliberately bypasses
+both the memoization and the fast path.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from sympy.matrices.expressions.matexpr import MatrixSymbol
 
 from reasoning.knownfacts import MATRIX_PREDICATES, NUMBER_PREDICATES
 from reasoning.satask import (
-    _MEMO_MAXSIZE, satask, _satask, _satask_memoized,
+    _MEMO_MAXSIZE, _satask_pipeline, normalize, satask, _satask_memoized,
 )
 
 x, y = symbols("x y")
@@ -37,9 +38,10 @@ def clear_memo():
 
 def oracle(prop: Any, assump: Any = True, **kw: Any) -> Any:
     """Run the full pipeline directly: no memoization, no fast path."""
-    return _satask(prop, assump, kw.get("use_known_facts", True),
-                   kw.get("iterations"), kw.get("early_return", False),
-                   kw.get("use_lra_theory", False))
+    return _satask_pipeline(normalize(prop), normalize(assump),
+                            kw.get("use_known_facts", True),
+                            kw.get("iterations"), kw.get("early_return", False),
+                            kw.get("use_lra_theory", False))
 
 
 def compare(prop: Any, assump: Any = True, **kw: Any) -> None:
@@ -47,7 +49,7 @@ def compare(prop: Any, assump: Any = True, **kw: Any) -> None:
     try:
         expected = oracle(prop, assump, **kw)
     except Exception as exc:  # noqa: BLE001 - the raise is reproduced below
-        with pytest.raises(type(exc)):
+        with pytest.raises(type(exc), match=f"^{__import__('re').escape(str(exc))}$"):
             satask(prop, assump, **kw)
         return
     assert satask(prop, assump, **kw) is expected
