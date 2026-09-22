@@ -81,11 +81,23 @@ To compare answers against the pinned SymPy `satask`, run
 `python -m benchmarks.compare_satask --include-early-return`. Saved original
 modules remain supported with `--baseline-satask` and `--baseline-handlers`.
 
+CI instead checks answers against SymPy's full `ask` as the correctness oracle
+with `python -m benchmarks.compare_satask --oracle --include-early-return`.
+Being stronger than `ask` (a definite answer where `ask` is unsure) or weaker
+is reported, and `ValueError` for inconsistent assumptions is accepted; only a
+definite answer that contradicts `ask`, or an unexpected exception, fails the
+run.
+
 CI (`.github/workflows/ci.yml`) runs the unit tests, mypy, and the vendored
 known-facts check on Python 3.10 and 3.14, plus the commands above, for every
 pull request. Timing results and the validation progress comparison appear in
 the job summary; CI timings are illustrative and the validation comparison is
 informational.
+
+To audit definite `satask` answers for soundness, run
+`python tools/check_soundness.py`. It checks answers against concrete models
+and SymPy's `ask` and shrinks findings with Hypothesis; see
+`agent-reports/2026-09-22-soundness-fuzzer.md` for usage and results.
 
 The benchmark reports warm median conversion, discovery/encoding, query
 encoding, and solving times, plus clause and variable counts. Discovery and fact

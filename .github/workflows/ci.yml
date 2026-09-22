@@ -54,8 +54,8 @@ jobs:
           cache: pip
       - name: Install the package with pinned SymPy and dev tools
         run: python -m pip install -e '.[sympy,dev]'
-      - name: Compare satask results against pinned SymPy
-        run: python -m benchmarks.compare_satask --include-early-return
+      - name: Compare satask answers against the SymPy ask oracle
+        run: python -m benchmarks.compare_satask --oracle --include-early-return
       - name: Run the satask timing benchmark
         run: python -m benchmarks.satask --repeat 25 | tee benchmark.json
       - name: Add the timing benchmark to the job summary

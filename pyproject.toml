@@ -14,7 +14,7 @@ sympy = [
     "sympy @ git+https://github.com/sympy/sympy.git@ddbb536d7e803e4c38d5d5808ad1217368b12655",
 ]
 
-dev = ["pytest", "mypy"]
+dev = ["hypothesis", "pytest", "mypy"]
 
 [tool.setuptools.package-data]
 reasoning = ["LICENSE.sympy"]
