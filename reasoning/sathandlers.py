@@ -368,22 +368,31 @@ def _pow_real_facts(expr: SymPyExpr) -> object:
     facts = [
         IMPLIES(AND(Q.imaginary(base), Q.integer(exp)),
                 EQUIVALENT(Q.real(expr), Q.even(exp))),
-        IMPLIES(Q.imaginary(exp),
-                EQUIVALENT(Q.real(expr), Q.imaginary(log(base)))),
         IMPLIES(AND(Q.real(base), Q.real(exp), Q.positive(base)), Q.real(expr)),
         IMPLIES(
             AND(Q.real(base), Q.real(exp), OR(Q.zero(base), Q.integer(exp)),
                 OR(NOT(Q.zero(base)), NOT(Q.negative(exp)))),
             Q.real(expr)),
     ]
+    if isinstance(base, Exp1):
+        # ``E**exp`` is real exactly when ``exp`` is real or an integer
+        # multiple of ``I*pi``; the generic imaginary-exponent rule below is
+        # only an equivalence for other bases (SymPy gives this case
+        # precedence too), and combining both is contradictory.
+        facts.append(IMPLIES(
+            OR(Q.integer(exp / S.ImaginaryUnit / pi), Q.real(exp)),
+            Q.real(expr)))
+        facts.append(IMPLIES(
+            AND(Q.imaginary(exp), NOT(Q.integer(exp / S.ImaginaryUnit / pi))),
+            NOT(Q.real(expr))))
+    else:
+        facts.append(IMPLIES(Q.imaginary(exp),
+                             EQUIVALENT(Q.real(expr),
+                                        Q.imaginary(log(base)))))
     if isinstance(exp, Rational) and exp.q % 2 == 0:
         facts.append(IMPLIES(
             AND(Q.real(base), Q.real(exp)),
             EQUIVALENT(Q.real(expr), Q.nonnegative(base))))
-    if isinstance(base, Exp1):
-        facts.append(IMPLIES(
-            OR(Q.integer(exp / S.ImaginaryUnit / pi), Q.real(exp)),
-            Q.real(expr)))
     return AND(*facts)
 
 

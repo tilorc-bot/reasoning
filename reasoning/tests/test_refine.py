@@ -31,8 +31,6 @@ def test_Abs() -> None:
     assert refine(Abs(x**2), Q.real(x)) == x**2
 
 
-@XFAIL  # type: ignore[untyped-decorator]
-# Q.real(1/x) under Q.positive(x) needs Pow real closure
 def test_pow1() -> None:
     assert refine((-1)**x, Q.even(x)) == 1
     assert refine((-1)**x, Q.odd(x)) == -1
@@ -254,8 +252,6 @@ def test_matrixelement() -> None:
     assert refine(x[j, i], Q.symmetric(x)) == x[j, i]
 
 
-@XFAIL  # type: ignore[untyped-decorator]
-# Parity of 2*n + 1 under Q.integer(n) needs Add parity facts
 def test_sin_cos() -> None:
     n = Symbol('n')
     assert refine(cos(n*pi/2), Q.odd(n)) == 0
