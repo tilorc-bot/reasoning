@@ -89,5 +89,6 @@ def get_all_relevant_facts(proposition: object, assumptions: object,
     db = ClauseDB()
     visited = discover_facts(subjects, db, adapter, _iteration_limit(iterations))
     if use_known_facts:
-        adapter.add_known_facts(subjects | visited, db)
+        adapter.add_known_facts(subjects | visited, db,
+                                to_formula(assumptions))
     return db

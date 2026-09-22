@@ -4,6 +4,7 @@ from typing import Any, Callable, Iterable, TypeAlias, cast
 
 from sympy import S, Symbol
 from sympy.assumptions.assume import AppliedPredicate
+from sympy.core.function import Function
 from sympy.assumptions.ask_generated import (
     get_all_known_matrix_facts, get_all_known_number_facts,
 )
@@ -16,7 +17,7 @@ from sympy.matrices.kind import MatrixKind
 
 from .clauses import (
     ClauseDB, Formula, AND, OR, NOT, IMPLIES, EQUIVALENT, XOR, ITE as IF,
-    iter_atoms,
+    assert_formula, iter_atoms,
 )
 from .predicates import AppliedPredicate as LocalAppliedPredicate
 from .predicates import Predicate as LocalPredicate
@@ -123,6 +124,46 @@ def _known_template(numbers: bool, matrices: bool) -> tuple[
     return predicates, data
 
 
+def _extra_predicate_facts(subject: SymPyExpr) -> Iterable[object]:
+    """Predicate-to-predicate facts missing from SymPy's known-fact table.
+
+    These are universal implications, so they are asserted for every subject
+    alongside the imported known facts.  They only mention local predicates
+    and the opaque subject, so the core stays SymPy-free.
+    """
+    facts: list[object] = [
+        IMPLIES(LocalQ.imaginary(subject), NOT(LocalQ.hermitian(subject))),
+        IMPLIES(LocalQ.imaginary(subject), NOT(LocalQ.extended_real(subject))),
+        IMPLIES(AND(LocalQ.real(subject), LocalQ.nonzero(subject)),
+                NOT(LocalQ.antihermitian(subject))),
+        IMPLIES(LocalQ.zero(subject), NOT(LocalQ.nonzero(subject))),
+        IMPLIES(LocalQ.nonpositive(subject), NOT(LocalQ.positive(subject))),
+        IMPLIES(LocalQ.nonnegative(subject), NOT(LocalQ.negative(subject))),
+        IMPLIES(LocalQ.integer(subject),
+                EQUIVALENT(LocalQ.odd(subject), NOT(LocalQ.even(subject)))),
+    ]
+    if isinstance(subject, Function):
+        facts.append(IMPLIES(
+            AND(*(LocalQ.commutative(arg) for arg in subject.args)),
+            LocalQ.commutative(subject)))
+        facts.append(IMPLIES(
+            OR(*(NOT(LocalQ.commutative(arg)) for arg in subject.args)),
+            NOT(LocalQ.commutative(subject))))
+    return facts
+
+
+def _negated_predicates(formula: object) -> set[object]:
+    """Applied predicates that occur negated in a normalized formula."""
+    if not isinstance(formula, Formula):
+        return set()
+    if formula.op == "not" and isinstance(formula.args[0], LocalAppliedPredicate):
+        return {formula.args[0]}
+    negated: set[object] = set()
+    for arg in formula.args:
+        negated |= _negated_predicates(arg)
+    return negated
+
+
 class SympyAdapter:
     def relevance_keys(self, atom: Any) -> set[SymPyExpr]:
         if isinstance(atom, LocalAppliedPredicate):
@@ -145,10 +186,16 @@ class SympyAdapter:
     def facts_for(self, subject: SymPyExpr) -> Iterable[object]:
         return (to_formula(fact) for fact in class_fact_registry(subject))
 
-    def add_known_facts(self, subjects: Iterable[SymPyExpr], db: ClauseDB) -> None:
+    def add_known_facts(self, subjects: Iterable[SymPyExpr], db: ClauseDB,
+                        assumptions: object = True) -> None:
+        subjects = list(subjects)
         numbers = any(expr.kind in (NumberKind, UndefinedKind) for expr in subjects)
         matrices = any(expr.kind == MatrixKind(NumberKind) for expr in subjects)
         predicates, clauses = _known_template(numbers, matrices)
+        negated = _negated_predicates(assumptions)
+        symbols: set[SymPyExpr] = set()
+        for subject in subjects:
+            symbols.update(cast("Any", subject).atoms(Symbol))
         for subject in subjects:
             mapping: list[int | None] = [None] + [
                 db.literal(predicate(subject)) for predicate in predicates
@@ -160,3 +207,9 @@ class SympyAdapter:
                     for lit in clause
                 ]
                 db.add_clause(literals)
+            for fact in _extra_predicate_facts(subject):
+                assert_formula(fact, db)
+        # SymPy treats symbols as commutative unless an assumption denies it.
+        for symbol in symbols:
+            if LocalQ.commutative(symbol) not in negated:
+                assert_formula(LocalQ.commutative(symbol), db)
