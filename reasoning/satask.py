@@ -112,8 +112,9 @@ def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
     literal, or follows from one through a single known-facts clause, or
     there is nothing to assume — are answered directly from the known-facts
     template without building the clause database; the fast path only fires
-    when the full pipeline provably produces the same value.  Like the rest
-    of the package, the cache assumes single-threaded use.
+    when the full pipeline provably produces the same value, which excludes
+    ``use_lra_theory`` (the theory can decide literals the clauses cannot).
+    Like the rest of the package, the cache assumes single-threaded use.
     """
     try:
         return _satask_memoized(_memo_argument(proposition),
@@ -150,9 +151,14 @@ def _satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool,
     assump_formula: NormalizedFormula = normalize(assumptions)
     # Validate here so an invalid limit raises even when the fast path answers.
     _iteration_limit(iterations)
-    answer = _fast_path_answer(prop_formula, assump_formula, use_known_facts)
-    if answer is not _NO_FAST_ANSWER:
-        return cast("bool | None", answer)
+    # With the LRA theory enabled, the clause database alone no longer
+    # determines the answer: the theory can entail or refute a degenerate
+    # relation literal (Q.gt(x, x), ~Q.eq(x, x), ...) and can even make a
+    # single literal assumption inconsistent.  No fast-path answer is sound.
+    if not use_lra_theory:
+        answer = _fast_path_answer(prop_formula, assump_formula, use_known_facts)
+        if answer is not _NO_FAST_ANSWER:
+            return cast("bool | None", answer)
     return _satask_pipeline(prop_formula, assump_formula, use_known_facts,
                             iterations, early_return, use_lra_theory)
 

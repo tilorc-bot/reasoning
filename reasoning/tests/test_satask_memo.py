@@ -172,6 +172,34 @@ def test_fast_path_matches_full_pipeline_on_leaf_cases() -> None:
         compare(prop, assump)
 
 
+def test_lra_theory_disables_the_fast_path() -> None:
+    # The LRA theory decides degenerate relation literals that the clause
+    # database alone cannot, and can make a single literal assumption
+    # inconsistent, so the fast path must never answer when it is enabled.
+    # Every case here was answered wrongly (or without raising) by an earlier
+    # fast path that ignored ``use_lra_theory``.
+    for prop, assump, expected in [
+        (Q.eq(x, x), ~Q.eq(x, x), ValueError),
+        (Q.gt(x, x), Q.gt(x, x), ValueError),
+        (Q.real(x), ~Q.eq(x, x), ValueError),
+        (~Q.eq(x, x), True, False),
+        (Q.gt(x, x), True, False),
+        (~Q.gt(x, x), True, True),
+        (Q.ge(x, x), True, True),
+        (Q.le(x, x), True, True),
+        (Q.eq(x, 0), Q.eq(x, 0), True),
+        (Q.eq(x, y), Q.eq(x, y), True),
+        (Q.real(x), Q.eq(x, 0), None),
+        (Q.zero(x), Q.eq(x, 0), None),
+    ]:
+        compare(prop, assump, use_lra_theory=True)
+        if expected is ValueError:
+            with pytest.raises(ValueError):
+                satask(prop, assump, use_lra_theory=True)
+        else:
+            assert satask(prop, assump, use_lra_theory=True) is expected
+
+
 def test_not_fast_path_cases_still_work() -> None:
     # Composite propositions, differing subjects, relations, and transfer
     # facts must fall through to the full pipeline intact.
